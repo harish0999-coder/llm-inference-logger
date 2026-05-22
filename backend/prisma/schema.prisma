@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Conversations ───────────────────────────────────────────────────────────
+
+model Conversation {
+  id        String             @id @default(uuid())
+  title     String?
+  provider  Provider
+  model     String
+  status    ConversationStatus @default(ACTIVE)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  messages      Message[]
+  inferenceLogs InferenceLog[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum ConversationStatus {
+  ACTIVE
+  CANCELLED
+  COMPLETED
+}
+
+enum Provider {
+  ANTHROPIC
+  OPENAI
+  GEMINI
+}
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String
+  role           MessageRole
+  content        String      @db.Text
+  // PII-redacted preview (first 200 chars, with PII replaced)
+  contentPreview String?     @db.VarChar(250)
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+// ─── Inference Logs ───────────────────────────────────────────────────────────
+
+model InferenceLog {
+  id             String        @id @default(uuid())
+  conversationId String
+  requestId      String        @unique // client-generated idempotency key
+  provider       Provider
+  model          String
+  status         RequestStatus
+  // Latency in milliseconds
+  latencyMs      Int?
+  // Token usage
+  inputTokens    Int?
+  outputTokens   Int?
+  totalTokens    Int?
+  // Cost estimate in USD micro-cents (avoids floats)
+  costUsdMicro   Int?
+  // Timestamps
+  requestedAt    DateTime
+  respondedAt    DateTime?
+  // Previews (truncated, PII-redacted)
+  inputPreview   String?       @db.VarChar(250)
+  outputPreview  String?       @db.VarChar(250)
+  // Error details
+  errorCode      String?
+  errorMessage   String?       @db.VarChar(500)
+  // Raw metadata blob for extensibility
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([requestedAt])
+  @@index([provider, model])
+  @@index([status])
+}
+
+enum RequestStatus {
+  SUCCESS
+  ERROR
+  CANCELLED
+  TIMEOUT
+}
